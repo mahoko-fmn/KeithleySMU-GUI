@@ -56,7 +56,7 @@ class KeithleyDevice(ABC):
     # measurement
     # -----------------
 
-    @abstracmethod
+    @abstractmethod
     def measure(self) -> Dict[str, float]:
         """
         returns:
