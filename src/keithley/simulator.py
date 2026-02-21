@@ -17,6 +17,12 @@ class Keithley2450Simulator(KeithleyDevice):
 
         self._load_resistance = load_resistance
 
+        self._last_measurement = {
+        "voltage": 0.0,
+        "current": 0.0,
+        "resistance": float("inf")
+        }
+
     # ----------------
     # lifecyle
     # ----------------
@@ -81,8 +87,14 @@ class Keithley2450Simulator(KeithleyDevice):
             voltage / current if abs(current) > 1e-12 else float("inf")
         )
 
-        return {
+        self._last_measurement = {
             "voltage": voltage,
             "current": current,
             "resistance": resistance
         }
+
+        return self._last_measurement
+
+    def get_last_measurement(self):
+        """Returns the last simulated measurement values."""
+        return self._last_measurement
