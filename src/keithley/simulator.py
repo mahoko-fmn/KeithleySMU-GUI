@@ -1,5 +1,5 @@
 import random
-from src.keithley.device_interface import KeithleDevice
+from src.keithley.device_interface import KeithleyDevice
 
 class Keithley2450Simulator(KeithleyDevice):
     """
