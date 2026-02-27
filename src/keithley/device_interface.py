@@ -52,6 +52,21 @@ class KeithleyDevice(ABC):
     def output_on(self) -> bool:
         pass
 
+    @abstractmethod
+    def set_source_mode(self, mode: str) -> None:
+        """
+        Set the source code. mode must be either:
+        "voltage" or "current"
+
+        switching mode must safely disable output
+        """
+        pass
+
+    @abstractmethod
+    def get_source_mode(self) -> str:
+        """ return current source mode"""
+        pass
+
     # ----------------
     # measurement
     # -----------------

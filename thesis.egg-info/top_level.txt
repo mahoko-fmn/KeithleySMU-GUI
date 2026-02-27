@@ -1,0 +1,6 @@
+data
+figures
+notebooks
+src
+tests
+venv

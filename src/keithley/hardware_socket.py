@@ -14,6 +14,9 @@ class Keithley2450Hardware(KeithleyDevice):
         self.rm = None
         self.inst = None
 
+        # state variables
+        self._source_mode = None
+        self._output_on = False
         self._voltage_setpoint = 0.0
         self._current_setpoint = 0.0
 
@@ -36,13 +39,17 @@ class Keithley2450Hardware(KeithleyDevice):
         self.inst.expect_termination = False
 
         self.inst.write("*CLS")
+        # upon measurement data return, only send voltage and current
+        self.inst.write(':FORM:ELEM VOLT, CURR')
         time.sleep(0.2)
 
-    def disconnet(self) -> None:
-        """ close visa session cleanly"""
-
+    def disconnect(self) -> None:
+        """ close visa session """
         if self.inst:
-            self.inst.write(":OUTP OFF")
+            if self._output_on:
+                self.inst.write(":OUTP OFF")
+                self._output_on = False
+
             self.inst.close()
             self.inst = None
 
@@ -51,30 +58,67 @@ class Keithley2450Hardware(KeithleyDevice):
     # ---------------------
 
     def set_voltage_setpoint(self, voltage: float) -> None:
-        self._voltage_setpoint = voltage
+        if self._source_mode != "voltage":
+            raise RuntimeError("Device not in voltage source mode")
 
-        self.inst.write(":SOUR:FUNC VOLT")
+        self._voltage_setpoint = voltage
         self.inst.write(f":SOUR:VOLT {voltage}")
+
+    def set_current_setpoint(self, current: float) -> None:
+        if self._source_mode != "current":
+            raise RuntimeError("Device not in current source mode")
+
+        self._current_setpoint = current
+        self.inst.write(f":SOUR:CURR {current}")
+
+    # ----------------------
+    # Getters
+    # ----------------------
+
 
     def get_voltage_setpoint(self) -> float:
         return self._voltage_setpoint
 
-    def set_current_setpoint(self, current: float) -> None:
-        self._current_setpoint = current
-
-        self.inst.write(":SOUR:FUNC CURR")
-        self.inst.write(f":SOUR:CURR {current}")
-
     def get_current_setpoint(self) -> float:
         return self._current_setpoint
+
+    """Safe mode switching """
+    def set_source_mode(self, mode: str) -> None:
+
+        if mode not in ("voltage", "current"):
+            raise ValueError("Mode must be 'voltage' or 'current'")
+
+        # safety: turn output off if active
+        if self._output_on:
+            self.inst.write("OUTP OFF")
+            self._output_on = False
+
+        if mode == "voltage":
+            self.inst.write(":SOUR:FUNC VOLT")
+        else:
+            self.inst.write(":SOUR:FUNC CURR")
+
+        self._source_mode = mode
+
+    def get_source_mode(self) -> str:
+        return self._source_mode
 
     # --------------------
     # output control
     # ----------------------------
 
     def output_on(self) -> bool:
+        if self._source_mode is None:
+            raise RuntimeError("Source mode must be set before enabling output")
+
         self.inst.write(":OUTP ON")
+        self._output_on = True
+
         return True
+
+    def output_off(self) -> None:
+        self.inst.write(":OUTP OFF")
+        self._output_on = False
 
 
     # ------------------
@@ -86,29 +130,30 @@ class Keithley2450Hardware(KeithleyDevice):
         trigger measurement and return voltage/current/resistance
         """
 
-        self.inst.write("READ?")
-        response = self.inst.read()
+        if self._source_mode == "voltage":
+            self.inst.write("MEAS:CURR?")
+            current = float(self.inst.read())
+            voltage = self._voltage_setpoint
 
-        values = response.split(",")
+        elif self._source_mode == "current":
+            self.inst.write("MEAS:VOLT?")
+            voltage = float(self.inst.read())
+            current = self._current_setpoint
 
-        voltage = float(values[0])
-        current = float(values[1])
+        else:
+            raise RuntimeError("Source mode not set")
 
         resistance = (
-            voltgae / current is abs(current) > 1e-12 else float("inf")
+             voltage / current if abs(current) > 1e-12 else float("inf")
         )
 
         return {
             "voltage": voltage,
             "current": current,
-            "resistance": resistance
+            "resistance": abs(resistance)
         }
 
-#    def identify(self):
-#        """ return instrument ID string """
-#        self.inst.write("*IDN?")                        # send identify Command
-#        return self.inst.read()                         # read response until newline
-
-#    def close(self):
-#        """ close visa session """
-#        self.inst.close()
+    def identify(self):
+        """ return instrument ID string """
+        self.inst.write("*IDN?")                        # send identify Command
+        return self.inst.read()                         # read response until newline
