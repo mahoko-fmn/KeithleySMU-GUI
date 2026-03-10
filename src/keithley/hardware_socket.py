@@ -20,12 +20,17 @@ class Keithley2450Hardware(KeithleyDevice):
         self._voltage_setpoint = 0.0
         self._current_setpoint = 0.0
 
+        # internal compliance states
+        self._current_comliance = 0.01              # 10mA default
+        self._voltage_compliance = 10.0             # 10V default
+
     # --------------------
     # Lifecycle
     # --------------------
 
     def connect(self) -> None:
         """ establish raw socket connection to instrument"""
+
 
         self.rm = pyvisa.ResourceManager()
 
@@ -35,10 +40,10 @@ class Keithley2450Hardware(KeithleyDevice):
             write_termination = '\n'
         )
 
+        self.inst.write("*CLS")                     # removes old queue errors
         self.inst.timeout = 3000
         self.inst.expect_termination = False
 
-        self.inst.write("*CLS")
         # upon measurement data return, only send voltage and current
         self.inst.write(':FORM:ELEM VOLT, CURR')
         time.sleep(0.2)
@@ -62,14 +67,15 @@ class Keithley2450Hardware(KeithleyDevice):
             raise RuntimeError("Device not in voltage source mode")
 
         self._voltage_setpoint = voltage
-        self.inst.write(f":SOUR:VOLT {voltage}")
+        self._write(f":SOUR:VOLT {voltage}")
+
 
     def set_current_setpoint(self, current: float) -> None:
         if self._source_mode != "current":
             raise RuntimeError("Device not in current source mode")
 
         self._current_setpoint = current
-        self.inst.write(f":SOUR:CURR {current}")
+        self.inst._write(f":SOUR:CURRENT {current}")
 
     # ----------------------
     # Getters
@@ -94,9 +100,14 @@ class Keithley2450Hardware(KeithleyDevice):
             self._output_on = False
 
         if mode == "voltage":
-            self.inst.write(":SOUR:FUNC VOLT")
+            self._write(":SOUR:FUNC:MODE VOLT")
+            self._write(':SENS:FUNC "CURR"')
+            self.inst.write(f":SOUR:VOLT:ILIM {self._current_comliance}")                   # setting current limit to 10 mA
+
         else:
-            self.inst.write(":SOUR:FUNC CURR")
+            self._write(':SOUR:FUNC "CURR"')
+            self._write(":SENS:FUNC VOLT")
+            self._write(f":SOUR:CURR:VLIM 10 {self._voltage_compliance}")                   # setting voltage limit to 10 V
 
         self._source_mode = mode
 
@@ -111,13 +122,14 @@ class Keithley2450Hardware(KeithleyDevice):
         if self._source_mode is None:
             raise RuntimeError("Source mode must be set before enabling output")
 
-        self.inst.write(":OUTP ON")
+        self._write(":OUTP ON")
+
         self._output_on = True
 
         return True
 
     def output_off(self) -> None:
-        self.inst.write(":OUTP OFF")
+        self._write(":OUTP OFF")
         self._output_on = False
 
 
@@ -153,7 +165,71 @@ class Keithley2450Hardware(KeithleyDevice):
             "resistance": abs(resistance)
         }
 
+    # voltage sweep
+    def voltage_sweep(self, start, stop, step, delay=0.1):
+        """
+        perform a voltage sweep and measure current at each step.
+        returns list of measurement dictionaries
+        """
+        results = []
+        voltage = start
+
+        if self.inst is None:
+            raise RuntimeError("Device not connected")
+
+        while voltage <= stop:
+
+            # use API instead of direct SCPI
+            self.set_voltage_setpoint(voltage)
+
+            time.sleep(delay)
+
+            measurement = self.measure()
+
+            results.append(measurement)
+
+            voltage += step
+
+        return results
+
+    # instrument identification
     def identify(self):
         """ return instrument ID string """
+
+        if self.inst is None:
+            raise RuntimeError("Device not connected. Call connect() first.")
+
         self.inst.write("*IDN?")                        # send identify Command
         return self.inst.read()                         # read response until newline
+
+    # error checking
+    def _check_error(self) -> None:
+        """
+        Query instrument error queue. Raise RuntimeError if any error present
+        """
+        while True:
+
+            self.inst.write(":SYST:ERR?")
+            response = self.inst.read().strip()
+
+            # response format: <code>, "message"
+            code_str, message = response.split(",",1)
+            code = int(code_str)
+
+            if code == 0:
+                break
+
+            raise RuntimeError(f"Instrument Error {code}: {message}")
+
+    # write and error check helper
+    def _write(self, cmd:str) -> None:
+        print("SCPI >>", cmd)
+        self.inst.write(cmd)
+
+        # termporal  code for debugging
+        self.inst.write(":SYST:ERR?")
+        err = self.inst.read()
+
+        print("ERR <", err)
+
+        self._check_error()
