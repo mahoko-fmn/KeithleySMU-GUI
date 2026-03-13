@@ -1,6 +1,8 @@
 import tkinter as tk
+from tkinter import filedialog
 import random
 from datetime import datetime
+import csv
 
 class SourcemeterGUI:
     """Manages the GUI elements for the Keithley 2450 Sourcemeter Simulator."""
@@ -8,7 +10,7 @@ class SourcemeterGUI:
     def __init__(self, master, simulator):
         self.master = master
         self.simulator = simulator # This will be either Keithley2450Simulator or Keithley2450Hardware
-        self.master.title('Keithley 2450 Sourcemeter Simulator')
+        self.master.title('Keithley 2450 Control Interface')
         self.master.geometry('800x600')
 
         self.voltage_setpoint_var = tk.StringVar(value=str(self.simulator.get_voltage_setpoint()))
@@ -21,7 +23,8 @@ class SourcemeterGUI:
         self._create_widgets()
         self._update_gui_status()
         self._log_message("Simulator GUI initialized.")
-        self._log_message("Set Voltage and Current, then turn Output ON.")
+
+
 
     def _create_widgets(self):
         main_frame = tk.Frame(self.master, padx=10, pady=10)
@@ -49,6 +52,61 @@ class SourcemeterGUI:
         tk.Button(control_frame, text="Output OFF", command=self._output_off_cmd, bg='red', fg='white').grid(row=3, column=0, padx=5, pady=2, sticky='ew')
         tk.Button(control_frame, text="Measure", command=self._measure_cmd).grid(row=4, column=0, padx=5, pady=2, sticky='ew')
 
+        # creating a mode selection panel
+        mode_frame = tk.LabelFrame(main_frame, text="Source Mode", padx=10, pady=10)
+        mode_frame.grid(row=0, column=2, padx=5, pady=5, sticky="ew")
+
+        self.source_mode_var = tk.StringVar(value="voltage")
+
+        tk.Radiobutton(
+            mode_frame,
+            text="Voltage Source",
+            variable=self.source_mode_var,
+            value="voltage",
+            command=self._set_source_mode_cmd
+        ).grid(row=1, column=0, sticky="w")
+
+        tk.Radiobutton(
+            mode_frame,
+            text="Current Source",
+            variable=self.source_mode_var,
+            value="current",
+            command=self._set_source_mode_cmd
+        ).grid(row=1, column=0, sticky="w")
+
+        # sweep controls
+        sweep_frame = tk.LabelFrame(main_frame, text="Voltage Sweep", padx=10, pady=10)
+        sweep_frame.grid(row=0, column=2, padx=2, pady=5, sticky='nsew')
+
+        tk.Label(sweep_frame, text="Start (V):").grid(row=0, column=0)
+        tk.Label(sweep_frame, text="Stop (V):").grid(row=1, column=0)
+        tk.Label(sweep_frame, text="Step (V):").grid(row=2, column=0)
+
+        self.sweep_start_var = tk.StringVar(value="0")
+        self.sweep_stop_var = tk.StringVar(value="1")
+        self.sweep_step_var = tk.StringVar(value="0.1")
+
+        tk.Entry(sweep_frame, textvariable=self.sweep_start_var).grid(row=0, column=1)
+        tk.Entry(sweep_frame, textvariable=self.sweep_stop_var).grid(row=1, column=1)
+        tk.Entry(sweep_frame, textvariable=self.sweep_step_var).grid(row=2, column=1)
+
+        tk.Button(
+            sweep_frame,
+            text="Run Sweep",
+            command=self._run_sweep_cmd,
+            bg="blue",
+            fg="white"
+        ).grid(row=3, column=0, columnspan=2, pady=2, sticky="ew")
+
+        # saving data button
+        tk.Button(
+            sweep_frame,
+            text="Save Data",
+            command=self._save_data_cmd,
+            bg="blue",
+            fg="white"
+        ).grid(row=4, column=0, columnspan=2, pady=2, sticky="ew")
+
         control_frame.grid_columnconfigure(0, weight=1)
 
         status_frame = tk.LabelFrame(main_frame, text="Status and Measurements", padx=10, pady=10)
@@ -75,6 +133,20 @@ class SourcemeterGUI:
         main_frame.grid_columnconfigure(1, weight=1)
         main_frame.grid_rowconfigure(1, weight=1)
         main_frame.grid_rowconfigure(2, weight=2)
+
+        # setting voltage source as default mode
+        self.simulator.set_source_mode("voltage")
+        self._log_message("Default source mode set to voltage")
+
+    # command handler
+    def _set_source_mode_cmd(self):
+        mode = self.source_mode_var.get()
+        try:
+            self.simulator.set_source_mode(mode)
+            self._log_message(f"GUI: Source mode set to {mode}")
+
+        except Exception as e:
+            self._log_message(f"Error setting source mode: {e}")
 
     def _set_voltage_cmd(self):
         try:
@@ -128,8 +200,33 @@ class SourcemeterGUI:
             f"R={measurements['resistance']:.3f} Ohm"
         )
 
+    # sweep command
+    def _run_sweep_cmd(self):
+        try:
+            start = float(self.sweep_start_var.get())
+            stop = float(self.sweep_stop_var.get())
+            step = float(self.sweep_step_var.get())
+
+            self._log_message(
+                f"GUI: Starting sweep {start} -> {stop} V step {step}"
+            )
+
+            data = self.simulator.voltage_sweep(start, stop, step)
+            self.last_sweep_data = data
+
+            self._log_message("GUI: Sweep complete")
+
+            for point in data:
+                self._log_message(
+                    f"Sweep: V={point['voltage']:.3f}"
+                    f" I={point['current']:.6f}"
+                )
+
+        except ValueError:
+            self._log_message("GUI: Invalid sweep parameters")
+
     def _update_gui_status(self):
-        if self.simulator.is_output_on():
+        if self.simulator.output_on():
             self.output_status_var.set("Output: ON")
         else:
             self.output_status_var.set("Output: OFF")
@@ -149,6 +246,85 @@ class SourcemeterGUI:
             self.measured_resistance_var.set(
                 f"Measured R: {last_meas['resistance']:.3f} Ohm"
             )
+
+    # def _save_sweep_to_csv(self, data):
+    #     timestamp = datetime.now().strtime("%Y-%m-%d_%H-%M-%S")
+    #
+    #     file_path = filedialog.asksaveasfilename(
+    #         initialfile = f"iv_sweep_{timestamp}.csv,
+    #         defaultextension =".csv",
+    #         filetypes = [("CSV files", "*.csv")],
+    #         title = "Save sweep data"
+    #     )
+    #     if not file_path:
+    #         self._log_message("GUI: Save cancelled")
+    #         return
+    #     try:
+    #         with open(file_path, mode="w", newline="") as file:
+    #             writer = csv.writer(file)
+    #             writer.writerow(["Voltage (V)", "Current (A)", "Resistance (Ohm)"])
+    #
+    #             for point in data:
+    #                 writer.writerow([
+    #                     point["voltage"],
+    #                     point["current"],
+    #                     point["resistance"]
+    #                 ])
+    #
+    #         self._log_message(f"GUI: Data saved to {file_path}")
+    #     except Exception as e:
+    #         self._log_message(f"GUI: Error saving file: {e}")
+
+    def _save_data_cmd(self):
+
+        if not hasattr(self, "last_sweep_data"):
+            self._log_message("GUI: No sweep data to save")
+            return
+
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        file_path = filedialog.asksaveasfilename(
+            initialfile = f"iv_sweep_{timestamp}.csv",
+            defaultextension = ".csv",
+            filetypes = [("CSV files", "*.csv")],
+            title = "Save sweep data"
+        )
+
+        if not file_path:
+            self._log_message("GUI: Save cancelled")
+            return
+        try:
+            with open(file_path, "w", newline="") as f:
+                # ----------- METADATA ----------------
+                now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+                f.write(f"# Instrument: Keithley2450 Source Measure Unit\n")
+                f.write(f"# Date: {now} \n")
+
+                source_mode = self.source_mode_var.get()
+                f.write(f"# Source Mode: {source_mode}\n")
+
+                start = self.sweep_start_var.get()
+                stop = self.sweep_stop_var.get()
+                step = self.sweep_step_var.get()
+
+                f.write(f"# Sweep Start: {start} V\n")
+                f.write(f"# Sweep Stop: {stop} V\n")
+                f.write(f"# Sweep Step: {step} V\n")
+
+                # ------------ DATA TABLE --------------
+                writer = csv.writer(f)
+                writer.writerow(["Voltage (V)", "Current (A)", "Resistance (Ohm)"])
+
+                for point in self.last_sweep_data:
+                    writer.writerow([
+                        point["voltage"],
+                        point["current"],
+                        point["resistance"]
+                    ])
+            self._log_message(f"GUI: Data saved to {file_path}")
+
+        except Exception as e:
+            self._log_message(f"GUI: Error saving data {e}")
 
     def _log_message(self, message):
         timestamp = datetime.now().strftime("[%H:%M:%S]")

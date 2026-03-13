@@ -24,6 +24,13 @@ class Keithley2450Hardware(KeithleyDevice):
         self._current_comliance = 0.01              # 10mA default
         self._voltage_compliance = 10.0             # 10V default
 
+        # measurement state tracking
+        self._last_measurement = {
+            "voltage": 0.0,
+            "current": 0.0,
+            "resistance": 0.0
+        }
+
     # --------------------
     # Lifecycle
     # --------------------
@@ -87,6 +94,9 @@ class Keithley2450Hardware(KeithleyDevice):
 
     def get_current_setpoint(self) -> float:
         return self._current_setpoint
+
+    def get_last_measurement(self):
+        return self._last_measurement
 
     """Safe mode switching """
     def set_source_mode(self, mode: str) -> None:
@@ -159,11 +169,15 @@ class Keithley2450Hardware(KeithleyDevice):
              voltage / current if abs(current) > 1e-12 else float("inf")
         )
 
-        return {
+        measurement = {
             "voltage": voltage,
             "current": current,
             "resistance": abs(resistance)
         }
+
+        self._last_measurement = measurement
+
+        return measurement
 
     # voltage sweep
     def voltage_sweep(self, start, stop, step, delay=0.1):
@@ -223,7 +237,7 @@ class Keithley2450Hardware(KeithleyDevice):
 
     # write and error check helper
     def _write(self, cmd:str) -> None:
-        print("SCPI >>", cmd)
+        # print("SCPI >>", cmd)
         self.inst.write(cmd)
 
         # termporal  code for debugging
