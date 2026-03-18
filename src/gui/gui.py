@@ -1,8 +1,11 @@
-import tkinter as tk
-from tkinter import filedialog
 import random
-from datetime import datetime
 import csv
+import tkinter as tk
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from tkinter import filedialog
+from datetime import datetime
+
 
 class SourcemeterGUI:
     """Manages the GUI elements for the Keithley 2450 Sourcemeter Simulator."""
@@ -22,7 +25,7 @@ class SourcemeterGUI:
 
         self._create_widgets()
         self._update_gui_status()
-        self._log_message("Simulator GUI initialized.")
+        self._log_message("SMU Hardware-GUI initialized.")
 
 
 
@@ -30,8 +33,23 @@ class SourcemeterGUI:
         main_frame = tk.Frame(self.master, padx=10, pady=10)
         main_frame.pack(fill='both', expand=True)
 
-        setpoint_frame = tk.LabelFrame(main_frame, text="Setpoints", padx=10, pady=10)
-        setpoint_frame.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
+        source_frame = tk.LabelFrame(
+            main_frame,
+            text="Source Configure",
+            padx=10,
+            pady=10
+        )
+
+        source_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+        # creating a mode selection toggle
+        mode_frame = tk.LabelFrame(source_frame, text="Source Mode")
+        mode_frame.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+
+        setpoint_frame = tk.LabelFrame(source_frame, text="Setpoints")
+        setpoint_frame.grid(row=1, column=0, padx=5, pady=5, sticky='ew')
+
+        setpoint_frame.grid_columnconfigure(0, weight=1)
+
 
         tk.Label(setpoint_frame, text="Voltage (V):").grid(row=0, column=0, padx=5, pady=2, sticky='w')
         self.voltage_entry = tk.Entry(setpoint_frame, textvariable=self.voltage_setpoint_var, width=15)
@@ -41,20 +59,6 @@ class SourcemeterGUI:
         self.current_entry = tk.Entry(setpoint_frame, textvariable=self.current_setpoint_var, width=15)
         self.current_entry.grid(row=1, column=1, padx=5, pady=2, sticky='ew')
 
-        setpoint_frame.grid_columnconfigure(1, weight=1)
-
-        control_frame = tk.LabelFrame(main_frame, text="Controls", padx=10, pady=10)
-        control_frame.grid(row=0, column=1, padx=5, pady=5, sticky='nsew')
-
-        tk.Button(control_frame, text="Set Voltage", command=self._set_voltage_cmd).grid(row=0, column=0, padx=5, pady=2, sticky='ew')
-        tk.Button(control_frame, text="Set Current", command=self._set_current_cmd).grid(row=1, column=0, padx=5, pady=2, sticky='ew')
-        tk.Button(control_frame, text="Output ON", command=self._output_on_cmd, bg='green', fg='white').grid(row=2, column=0, padx=5, pady=2, sticky='ew')
-        tk.Button(control_frame, text="Output OFF", command=self._output_off_cmd, bg='red', fg='white').grid(row=3, column=0, padx=5, pady=2, sticky='ew')
-        tk.Button(control_frame, text="Measure", command=self._measure_cmd).grid(row=4, column=0, padx=5, pady=2, sticky='ew')
-
-        # creating a mode selection panel
-        mode_frame = tk.LabelFrame(main_frame, text="Source Mode", padx=10, pady=10)
-        mode_frame.grid(row=0, column=2, padx=5, pady=5, sticky="ew")
 
         self.source_mode_var = tk.StringVar(value="voltage")
 
@@ -64,7 +68,7 @@ class SourcemeterGUI:
             variable=self.source_mode_var,
             value="voltage",
             command=self._set_source_mode_cmd
-        ).grid(row=1, column=0, sticky="w")
+        ).grid(row=0, column=0, sticky="w")
 
         tk.Radiobutton(
             mode_frame,
@@ -74,9 +78,20 @@ class SourcemeterGUI:
             command=self._set_source_mode_cmd
         ).grid(row=1, column=0, sticky="w")
 
+
+        """ control center """
+        control_frame = tk.LabelFrame(main_frame, text="Controls", padx=10, pady=10)
+        control_frame.grid(row=0, column=1, padx=5, pady=5, sticky='nsew')
+
+        tk.Button(control_frame, text="Set Voltage", command=self._set_voltage_cmd).grid(row=0, column=0, padx=5, pady=2, sticky='ew')
+        tk.Button(control_frame, text="Set Current", command=self._set_current_cmd).grid(row=1, column=0, padx=5, pady=2, sticky='ew')
+        tk.Button(control_frame, text="Output ON", command=self._output_on_cmd, bg='green', fg='white').grid(row=2, column=0, padx=5, pady=2, sticky='ew')
+        tk.Button(control_frame, text="Output OFF", command=self._output_off_cmd, bg='red', fg='white').grid(row=3, column=0, padx=5, pady=2, sticky='ew')
+        tk.Button(control_frame, text="Measure", command=self._measure_cmd).grid(row=4, column=0, padx=5, pady=2, sticky='ew')
+
         # sweep controls
         sweep_frame = tk.LabelFrame(main_frame, text="Voltage Sweep", padx=10, pady=10)
-        sweep_frame.grid(row=0, column=2, padx=2, pady=5, sticky='nsew')
+        sweep_frame.grid(row=0, column=2, padx=5, pady=5, sticky='ew')
 
         tk.Label(sweep_frame, text="Start (V):").grid(row=0, column=0)
         tk.Label(sweep_frame, text="Stop (V):").grid(row=1, column=0)
@@ -120,7 +135,7 @@ class SourcemeterGUI:
         status_frame.grid_columnconfigure(0, weight=1)
 
         output_frame = tk.LabelFrame(main_frame, text="Output Log", padx=5, pady=5)
-        output_frame.grid(row=2, column=0, columnspan=2, padx=5, pady=5, sticky='nsew')
+        output_frame.grid(row=4, column=0, columnspan=3, padx=5, pady=5, sticky='nsew')
 
         self.output_text = tk.Text(output_frame, height=10, state='disabled', wrap='word', font=('Consolas', 9))
         self.output_text.pack(side='left', fill='both', expand=True)
@@ -129,14 +144,32 @@ class SourcemeterGUI:
         output_scrollbar.pack(side='right', fill='y')
         self.output_text['yscrollcommand'] = output_scrollbar.set
 
-        main_frame.grid_columnconfigure(0, weight=1)
+        main_frame.grid_columnconfigure(0, weight=2)
         main_frame.grid_columnconfigure(1, weight=1)
-        main_frame.grid_rowconfigure(1, weight=1)
+        # dedicated column for the plot_frame
+        main_frame.grid_columnconfigure(2, weight=2)
+        main_frame.grid_rowconfigure(1, weight=2)
         main_frame.grid_rowconfigure(2, weight=2)
 
         # setting voltage source as default mode
         self.simulator.set_source_mode("voltage")
         self._log_message("Default source mode set to voltage")
+
+        """ creating a plot frame """
+        plot_frame = tk.LabelFrame(main_frame, text="Live IV Plot", padx=5, pady=5)
+        plot_frame.grid(row=1, column=2, rowspan=2, padx=5, pady=5, sticky="nsew")
+            # creating the Figure and embedding into GUI
+        self.fig, self.ax = plt.subplots(figsize=(5,4))
+
+        self.ax.set_title("I-V Characteristic")
+        self.ax.set_xlabel("Voltage (V)")
+        self.ax.set_ylabel("Cuurent (A)")
+
+        self.line, = self.ax.plot([], [], marker="o")
+
+        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
 
     # command handler
     def _set_source_mode_cmd(self):
@@ -147,6 +180,17 @@ class SourcemeterGUI:
 
         except Exception as e:
             self._log_message(f"Error setting source mode: {e}")
+
+        # label updates for user to know which parameter is active
+        if mode == "voltage":
+            self.voltage_entry.config(state="normal")
+            self.current_entry.config(state="disabled")
+        else:
+            self.voltage_entry.config(state="disabled")
+            self.current_entry.config(state="normal")
+
+        # debugging purposes
+        print("Mode changed to:", mode)
 
     def _set_voltage_cmd(self):
         try:
@@ -200,8 +244,31 @@ class SourcemeterGUI:
             f"R={measurements['resistance']:.3f} Ohm"
         )
 
+        # resetting variables label to 0
+        self.voltage_setpoint_var.set(0.0)
+        self.current_setpoint_var.set(0.0)
+
+        # for safety, automatically turn output OFF post measurement
+        self.simulator.output_off()
+        self._update_gui_status()
+
     # sweep command
     def _run_sweep_cmd(self):
+
+        # disabling a sweep if parameters are empty
+        if not self.sweep_start_var.get():
+            self._log_message("GUI: Sweep start not set.")
+            return
+
+        # prevents old data from staying on the screen
+        self.ax.clear()
+        self.ax.set_title("I-V Characteristic")
+        self.ax.set_xlabel("Voltage (V)")
+        self.ax.set_ylabel("Current (A)")
+
+        self.line, = self.ax.plot([], [], marker="o")
+        self.canvas.draw()
+
         try:
             start = float(self.sweep_start_var.get())
             stop = float(self.sweep_stop_var.get())
@@ -216,14 +283,35 @@ class SourcemeterGUI:
 
             self._log_message("GUI: Sweep complete")
 
+            voltages = []
+            currents = []
+
             for point in data:
+                v = point["voltage"]
+                i = point["current"]
+
+                voltages.append(v)
+                currents.append(i)
+                # update plot
+                print(type(self.line))
+                self.line.set_data(voltages, currents)
+                self.ax.relim()
+                self.ax.autoscale_view()
+
+                self.canvas.draw()
+
                 self._log_message(
-                    f"Sweep: V={point['voltage']:.3f}"
-                    f" I={point['current']:.6f}"
+                    f"Sweep: V={v:.3f}V , I={i:.6f}A "
                 )
+                self.master.update()
 
         except ValueError:
             self._log_message("GUI: Invalid sweep parameters")
+
+        # clearing variable input after a sweep
+        self.sweep_start_var.set("0.0")
+        self.sweep_stop_var.set("0.0")
+        self.sweep_step_var.set("0.0")
 
     def _update_gui_status(self):
         if self.simulator.output_on():
@@ -247,33 +335,6 @@ class SourcemeterGUI:
                 f"Measured R: {last_meas['resistance']:.3f} Ohm"
             )
 
-    # def _save_sweep_to_csv(self, data):
-    #     timestamp = datetime.now().strtime("%Y-%m-%d_%H-%M-%S")
-    #
-    #     file_path = filedialog.asksaveasfilename(
-    #         initialfile = f"iv_sweep_{timestamp}.csv,
-    #         defaultextension =".csv",
-    #         filetypes = [("CSV files", "*.csv")],
-    #         title = "Save sweep data"
-    #     )
-    #     if not file_path:
-    #         self._log_message("GUI: Save cancelled")
-    #         return
-    #     try:
-    #         with open(file_path, mode="w", newline="") as file:
-    #             writer = csv.writer(file)
-    #             writer.writerow(["Voltage (V)", "Current (A)", "Resistance (Ohm)"])
-    #
-    #             for point in data:
-    #                 writer.writerow([
-    #                     point["voltage"],
-    #                     point["current"],
-    #                     point["resistance"]
-    #                 ])
-    #
-    #         self._log_message(f"GUI: Data saved to {file_path}")
-    #     except Exception as e:
-    #         self._log_message(f"GUI: Error saving file: {e}")
 
     def _save_data_cmd(self):
 
@@ -325,6 +386,11 @@ class SourcemeterGUI:
 
         except Exception as e:
             self._log_message(f"GUI: Error saving data {e}")
+
+        # clearing variable input after saving data
+        self.sweep_start_var.set("0.0")
+        self.sweep_stop_var.set("0.0")
+        self.sweep_step_var.set("0.0")
 
     def _log_message(self, message):
         timestamp = datetime.now().strftime("[%H:%M:%S]")

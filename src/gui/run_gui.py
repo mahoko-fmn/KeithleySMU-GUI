@@ -1,3 +1,4 @@
+import sys
 import tkinter as tk
 from gui.gui import SourcemeterGUI
 from keithley.hardware_socket import Keithley2450Hardware
@@ -17,6 +18,21 @@ def main():
     app = SourcemeterGUI(root, device)
 
     # start GUI loop
+    root.mainloop()
+
+    def on_close():
+        try:
+            device.output_off()
+        except:
+            pass
+        try:
+            device.disconnect()            # safely release SMU connection
+        except:
+            pass
+        root.quit()
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", on_close)
     root.mainloop()
 
 if __name__ == "__main__":

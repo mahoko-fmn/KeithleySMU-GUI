@@ -82,7 +82,7 @@ class Keithley2450Hardware(KeithleyDevice):
             raise RuntimeError("Device not in current source mode")
 
         self._current_setpoint = current
-        self.inst._write(f":SOUR:CURRENT {current}")
+        self._write(f":SOUR:CURR {current}")
 
     # ----------------------
     # Getters
@@ -112,12 +112,12 @@ class Keithley2450Hardware(KeithleyDevice):
         if mode == "voltage":
             self._write(":SOUR:FUNC:MODE VOLT")
             self._write(':SENS:FUNC "CURR"')
-            self.inst.write(f":SOUR:VOLT:ILIM {self._current_comliance}")                   # setting current limit to 10 mA
+            self._write(f":SOUR:VOLT:ILIM {self._current_comliance}")                   # setting current limit to 10 mA
 
         else:
-            self._write(':SOUR:FUNC "CURR"')
-            self._write(":SENS:FUNC VOLT")
-            self._write(f":SOUR:CURR:VLIM 10 {self._voltage_compliance}")                   # setting voltage limit to 10 V
+            self._write(":SOUR:FUNC CURR")
+            self._write(':SENS:FUNC "VOLT"')
+            self._write(f":SOUR:CURR:VLIM {self._voltage_compliance}")                   # setting voltage limit to 10 V
 
         self._source_mode = mode
 
@@ -151,7 +151,6 @@ class Keithley2450Hardware(KeithleyDevice):
         """
         trigger measurement and return voltage/current/resistance
         """
-
         if self._source_mode == "voltage":
             self.inst.write("MEAS:CURR?")
             current = float(self.inst.read())
