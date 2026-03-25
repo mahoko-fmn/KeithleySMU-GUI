@@ -13,6 +13,8 @@ def main():
     # chooose device implementation
     device = Keithley2450Hardware("TCPIP0::192.168.50.200::5025::SOCKET")
     device.connect()
+    # ensuring output OFF
+    device.output_off()
 
     #create GUI
     app = SourcemeterGUI(root, device)

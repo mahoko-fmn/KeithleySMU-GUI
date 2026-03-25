@@ -85,9 +85,32 @@ class SourcemeterGUI:
 
         tk.Button(control_frame, text="Set Voltage", command=self._set_voltage_cmd).grid(row=0, column=0, padx=5, pady=2, sticky='ew')
         tk.Button(control_frame, text="Set Current", command=self._set_current_cmd).grid(row=1, column=0, padx=5, pady=2, sticky='ew')
-        tk.Button(control_frame, text="Output ON", command=self._output_on_cmd, bg='green', fg='white').grid(row=2, column=0, padx=5, pady=2, sticky='ew')
-        tk.Button(control_frame, text="Output OFF", command=self._output_off_cmd, bg='red', fg='white').grid(row=3, column=0, padx=5, pady=2, sticky='ew')
-        tk.Button(control_frame, text="Measure", command=self._measure_cmd).grid(row=4, column=0, padx=5, pady=2, sticky='ew')
+
+        self.output_on_button = tk.Button(
+            control_frame,
+            text="Output ON",
+            command=self._output_on_cmd,
+            bg='green',
+            fg='white'
+            )
+        self.output_on_button.grid(row=2, column=0, padx=5, pady=2, sticky='ew')
+
+        self.output_off_button = tk.Button(
+            control_frame,
+            text="Output OFF",
+            command=self._output_off_cmd,
+            bg='red',
+            fg='white'
+            )
+        self.output_off_button.grid(row=3, column=0, padx=5, pady=2, sticky='ew')
+
+
+        self.measure_button = tk.Button(
+            control_frame,
+            text="Measure",
+            command=self._measure_cmd
+        )
+        self.measure_button.grid(row=4, column=0, padx=5, pady=2, sticky='ew')
 
         # sweep controls
         sweep_frame = tk.LabelFrame(main_frame, text="Voltage Sweep", padx=10, pady=10)
@@ -98,20 +121,21 @@ class SourcemeterGUI:
         tk.Label(sweep_frame, text="Step (V):").grid(row=2, column=0)
 
         self.sweep_start_var = tk.StringVar(value="0")
-        self.sweep_stop_var = tk.StringVar(value="1")
-        self.sweep_step_var = tk.StringVar(value="0.1")
+        self.sweep_stop_var = tk.StringVar(value="0.0")
+        self.sweep_step_var = tk.StringVar(value="0.0")
 
         tk.Entry(sweep_frame, textvariable=self.sweep_start_var).grid(row=0, column=1)
         tk.Entry(sweep_frame, textvariable=self.sweep_stop_var).grid(row=1, column=1)
         tk.Entry(sweep_frame, textvariable=self.sweep_step_var).grid(row=2, column=1)
 
-        tk.Button(
+        self.sweep_button = tk.Button(
             sweep_frame,
             text="Run Sweep",
             command=self._run_sweep_cmd,
             bg="blue",
             fg="white"
-        ).grid(row=3, column=0, columnspan=2, pady=2, sticky="ew")
+        )
+        self.sweep_button.grid(row=3, column=0, columnspan=2, pady=2, sticky="ew")
 
         # saving data button
         tk.Button(
@@ -185,12 +209,14 @@ class SourcemeterGUI:
         if mode == "voltage":
             self.voltage_entry.config(state="normal")
             self.current_entry.config(state="disabled")
+
+            self.sweep_button.config(state="normal")
         else:
             self.voltage_entry.config(state="disabled")
             self.current_entry.config(state="normal")
 
-        # debugging purposes
-        print("Mode changed to:", mode)
+            # eliminating the sweep option in Current Source mode
+            self.sweep_button.config(state="disabled")
 
     def _set_voltage_cmd(self):
         try:
@@ -219,7 +245,16 @@ class SourcemeterGUI:
         self._log_message("GUI: Output OFF command sent.")
 
     def _measure_cmd(self):
+
+        # ensuring output ON before every measurement
+        if not self.simulator.is_output_on():
+            self._log_message("Warning: Output is OFF, Enable output before a measurement. ")
+            return
+
         measurements = self.simulator.measure()
+
+        self.simulator.output_off()
+        self._update_gui_status()
 
         self.measured_voltage_var.set(
             f"Measured V: {measurements['voltage']:.3f} V"
@@ -255,10 +290,20 @@ class SourcemeterGUI:
     # sweep command
     def _run_sweep_cmd(self):
 
+        # ensuring sweep is ran in the correct source mode
+        if self.source_mode_var.get() != "voltage":
+            self._log_message("Sweep requires Voltage Source mode. Please change mode and try again.")
+
+        # ensuring output ON before every measurement
+        if not self.simulator.is_output_on():
+            self._log_message("Warning: Output is OFF, Enable output before voltage sweep. ")
+            return
+
         # disabling a sweep if parameters are empty
         if not self.sweep_start_var.get():
             self._log_message("GUI: Sweep start not set.")
             return
+
 
         # prevents old data from staying on the screen
         self.ax.clear()
@@ -269,16 +314,37 @@ class SourcemeterGUI:
         self.line, = self.ax.plot([], [], marker="o")
         self.canvas.draw()
 
+        self._update_gui_status()
+        self._log_message("GUI: Output ON for sweep.")
+
         try:
             start = float(self.sweep_start_var.get())
             stop = float(self.sweep_stop_var.get())
             step = float(self.sweep_step_var.get())
 
+            #debugging
+            print("STORING SWEEP PARAMS:", start, stop, step)
+
+            # storing sweep parameters at execution time
+            self.last_sweep_params = {
+                "start": start,
+                "stop": stop,
+                "step": step
+            }
+
             self._log_message(
                 f"GUI: Starting sweep {start} -> {stop} V step {step}"
             )
 
+            # safety measures pre and post a sweep
+            self.simulator.output_on()
+            self._update_gui_status()
+
             data = self.simulator.voltage_sweep(start, stop, step)
+
+            self.simulator.output_off()
+            self._update_gui_status()
+
             self.last_sweep_data = data
 
             self._log_message("GUI: Sweep complete")
@@ -293,7 +359,6 @@ class SourcemeterGUI:
                 voltages.append(v)
                 currents.append(i)
                 # update plot
-                print(type(self.line))
                 self.line.set_data(voltages, currents)
                 self.ax.relim()
                 self.ax.autoscale_view()
@@ -313,11 +378,28 @@ class SourcemeterGUI:
         self.sweep_stop_var.set("0.0")
         self.sweep_step_var.set("0.0")
 
+        # turning output off post sweep
+        self.simulator.output_off()
+        self._update_gui_status()
+        self._log_message("GUI: Output OFF after sweep")
+
     def _update_gui_status(self):
-        if self.simulator.output_on():
-            self.output_status_var.set("Output: ON")
+
+        if self.simulator.is_output_on():
+            self.output_status_var.set("Output: ON (Ready)")
+
+            self.output_on_button.config(state="disabled")
+            self.output_off_button.config(state="normal")
+
+            self.measure_button.config(state="normal")
+
         else:
-            self.output_status_var.set("Output: OFF")
+            self.output_status_var.set("Output: OFF (Inactive)")
+
+            self.output_on_button.config(state="normal")
+            self.output_off_button.config(state="disabled")
+
+            self.measure_button.config(state="disabled")
 
         last_meas = self.simulator.get_last_measurement()
 
@@ -325,7 +407,7 @@ class SourcemeterGUI:
             f"Measured V: {last_meas['voltage']:.3f} V"
             )
         self.measured_current_var.set(
-                f"Measured I: {last_meas['current']:.6f} A"
+                f"Measured I: {last_meas['current']:.9f} A"
             )
 
         if last_meas['resistance'] == float('inf'):
@@ -364,9 +446,13 @@ class SourcemeterGUI:
                 source_mode = self.source_mode_var.get()
                 f.write(f"# Source Mode: {source_mode}\n")
 
-                start = self.sweep_start_var.get()
-                stop = self.sweep_stop_var.get()
-                step = self.sweep_step_var.get()
+                params = getattr(self, "last_sweep_params", None)
+                if params:
+                    start = params["start"]
+                    stop = params["stop"]
+                    step = params["step"]
+                else:
+                    start = stop = step = "N/A"
 
                 f.write(f"# Sweep Start: {start} V\n")
                 f.write(f"# Sweep Stop: {stop} V\n")

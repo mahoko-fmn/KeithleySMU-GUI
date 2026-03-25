@@ -142,6 +142,9 @@ class Keithley2450Hardware(KeithleyDevice):
         self._write(":OUTP OFF")
         self._output_on = False
 
+    def is_output_on(self):
+        return self._output_on
+
 
     # ------------------
     # Measurement
@@ -152,13 +155,11 @@ class Keithley2450Hardware(KeithleyDevice):
         trigger measurement and return voltage/current/resistance
         """
         if self._source_mode == "voltage":
-            self.inst.write("MEAS:CURR?")
-            current = float(self.inst.read())
+            current = float(self.inst.query(":MEAS:CURR?"))
             voltage = self._voltage_setpoint
 
         elif self._source_mode == "current":
-            self.inst.write("MEAS:VOLT?")
-            voltage = float(self.inst.read())
+            voltage = float(self.inst.query(":MEAS:VOLT?"))
             current = self._current_setpoint
 
         else:
@@ -178,12 +179,22 @@ class Keithley2450Hardware(KeithleyDevice):
 
         return measurement
 
+    def _prepare_voltage_sweep(self):
+        self._write(":SOUR:FUNC VOLT")
+        self._write(':SENS:FUNC "CURR"')
+
+        self._write(f":SENS:CURR:PROT {self._current_comliance}")
+        self._write(":SENS:CURR:RANG:AUTO ON")
+
     # voltage sweep
     def voltage_sweep(self, start, stop, step, delay=0.1):
         """
         perform a voltage sweep and measure current at each step.
         returns list of measurement dictionaries
         """
+        self._prepare_voltage_sweep()
+        self.output_on()
+
         results = []
         voltage = start
 
@@ -198,7 +209,6 @@ class Keithley2450Hardware(KeithleyDevice):
             time.sleep(delay)
 
             measurement = self.measure()
-
             results.append(measurement)
 
             voltage += step
