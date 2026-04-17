@@ -19,9 +19,7 @@ def main():
     #create GUI
     app = SourcemeterGUI(root, device)
 
-    # start GUI loop
-    root.mainloop()
-
+    # register close handler BEFORE mainloop
     def on_close():
         try:
             device.output_off()
@@ -35,7 +33,10 @@ def main():
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
+
+    # start GUI loop
     root.mainloop()
+
 
 if __name__ == "__main__":
     main()

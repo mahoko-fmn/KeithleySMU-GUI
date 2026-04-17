@@ -12,6 +12,7 @@ src/keithley/hardware_socket.py
 src/keithley/load_model.py
 src/keithley/measurement_controller.py
 src/keithley/simulator.py
+src/keithley/test_instrument.py
 src/utils/__init__.py
 thesis.egg-info/PKG-INFO
 thesis.egg-info/SOURCES.txt

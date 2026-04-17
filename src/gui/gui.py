@@ -14,7 +14,7 @@ class SourcemeterGUI:
         self.master = master
         self.simulator = simulator # This will be either Keithley2450Simulator or Keithley2450Hardware
         self.master.title('Keithley 2450 Control Interface')
-        self.master.geometry('800x600')
+        self.master.geometry('900x700')
 
         self.voltage_setpoint_var = tk.StringVar(value=str(self.simulator.get_voltage_setpoint()))
         self.current_setpoint_var = tk.StringVar(value=str(self.simulator.get_current_setpoint()))
@@ -26,8 +26,6 @@ class SourcemeterGUI:
         self._create_widgets()
         self._update_gui_status()
         self._log_message("SMU Hardware-GUI initialized.")
-
-
 
     def _create_widgets(self):
         main_frame = tk.Frame(self.master, padx=10, pady=10)
@@ -52,7 +50,7 @@ class SourcemeterGUI:
 
 
         tk.Label(setpoint_frame, text="Voltage (V):").grid(row=0, column=0, padx=5, pady=2, sticky='w')
-        self.voltage_entry = tk.Entry(setpoint_frame, textvariable=self.voltage_setpoint_var, width=15)
+        self.voltage_entry = tk.Entry(setpoint_frame, textvariable=self.voltage_setpoint_var, width=15, state= "disabled")
         self.voltage_entry.grid(row=0, column=1, padx=5, pady=2, sticky='ew')
 
         tk.Label(setpoint_frame, text="Current (A):").grid(row=1, column=0, padx=5, pady=2, sticky='w')
@@ -60,14 +58,15 @@ class SourcemeterGUI:
         self.current_entry.grid(row=1, column=1, padx=5, pady=2, sticky='ew')
 
 
-        self.source_mode_var = tk.StringVar(value="voltage")
+        self.source_mode_var = tk.StringVar(value="current") # set the default Radiobutton
 
         tk.Radiobutton(
             mode_frame,
             text="Voltage Source",
             variable=self.source_mode_var,
             value="voltage",
-            command=self._set_source_mode_cmd
+            command=self._set_source_mode_cmd,
+            state= "disabled"
         ).grid(row=0, column=0, sticky="w")
 
         tk.Radiobutton(
@@ -83,27 +82,38 @@ class SourcemeterGUI:
         control_frame = tk.LabelFrame(main_frame, text="Controls", padx=10, pady=10)
         control_frame.grid(row=0, column=1, padx=5, pady=5, sticky='nsew')
 
-        tk.Button(control_frame, text="Set Voltage", command=self._set_voltage_cmd).grid(row=0, column=0, padx=5, pady=2, sticky='ew')
+        tk.Button(control_frame, text="Set Voltage", command=self._set_voltage_cmd).grid(row=0, column=0, padx=5, pady=2, sticky='ew', state="disabled")
         tk.Button(control_frame, text="Set Current", command=self._set_current_cmd).grid(row=1, column=0, padx=5, pady=2, sticky='ew')
 
-        self.output_on_button = tk.Button(
-            control_frame,
-            text="Output ON",
-            command=self._output_on_cmd,
-            bg='green',
-            fg='white'
-            )
-        self.output_on_button.grid(row=2, column=0, padx=5, pady=2, sticky='ew')
 
-        self.output_off_button = tk.Button(
-            control_frame,
-            text="Output OFF",
-            command=self._output_off_cmd,
-            bg='red',
-            fg='white'
-            )
-        self.output_off_button.grid(row=3, column=0, padx=5, pady=2, sticky='ew')
+        # self.output_on_button = tk.Button(
+        #     control_frame,
+        #     text="Output ON",
+        #     command=self._output_on_cmd,
+        #     bg='green',
+        #     fg='white'
+        #     )
+        # self.output_on_button.grid(row=2, column=0, padx=5, pady=2, sticky='ew')
+        #
+        # self.output_off_button = tk.Button(
+        #     control_frame,
+        #     text="Output OFF",
+        #     command=self._output_off_cmd,
+        #     bg='red',
+        #     fg='yellow'
+        #     )
+        # self.output_off_button.grid(row=3, column=0, padx=5, pady=2, sticky='ew')
 
+        # update from two to single button output indicator
+        # when sweeping temporarily disable the button.
+        self.output_button = tk.Button(
+            control_frame,
+            text="OUTPUT OFF",
+            bg="red",
+            fg="white",
+            command=self._toggle_output_cmd
+        )
+        self.output_button.grid(row=2, column=0, padx=5, pady=2, sticky="ew")
 
         self.measure_button = tk.Button(
             control_frame,
@@ -120,7 +130,7 @@ class SourcemeterGUI:
         tk.Label(sweep_frame, text="Stop (V):").grid(row=1, column=0)
         tk.Label(sweep_frame, text="Step (V):").grid(row=2, column=0)
 
-        self.sweep_start_var = tk.StringVar(value="0")
+        self.sweep_start_var = tk.StringVar(value="0.0")
         self.sweep_stop_var = tk.StringVar(value="0.0")
         self.sweep_step_var = tk.StringVar(value="0.0")
 
@@ -175,9 +185,9 @@ class SourcemeterGUI:
         main_frame.grid_rowconfigure(1, weight=2)
         main_frame.grid_rowconfigure(2, weight=2)
 
-        # setting voltage source as default mode
-        self.simulator.set_source_mode("voltage")
-        self._log_message("Default source mode set to voltage")
+        # setting current source as default mode
+        self.simulator.set_source_mode("current")
+        self._log_message("Default source mode set to current")
 
         """ creating a plot frame """
         plot_frame = tk.LabelFrame(main_frame, text="Live IV Plot", padx=5, pady=5)
@@ -198,6 +208,16 @@ class SourcemeterGUI:
     # command handler
     def _set_source_mode_cmd(self):
         mode = self.source_mode_var.get()
+
+        self._last_measurement = {
+            "voltage_measured": 0.0,
+            "current_measured": 0.0,
+            "voltage_setpoint": 0.0,
+            "current_setpoint": 0.0,
+            "mode": mode,
+            "resistance": 0.0,
+            "compliance": False
+        }
         try:
             self.simulator.set_source_mode(mode)
             self._log_message(f"GUI: Source mode set to {mode}")
@@ -207,16 +227,22 @@ class SourcemeterGUI:
 
         # label updates for user to know which parameter is active
         if mode == "voltage":
+            self._current_setpoint = 0.0
             self.voltage_entry.config(state="normal")
             self.current_entry.config(state="disabled")
 
             self.sweep_button.config(state="normal")
+
         else:
+            self._voltage_setpoint = 0.0
             self.voltage_entry.config(state="disabled")
             self.current_entry.config(state="normal")
 
             # eliminating the sweep option in Current Source mode
             self.sweep_button.config(state="disabled")
+
+        # resetting setpoints values
+        self._update_gui_status()
 
     def _set_voltage_cmd(self):
         try:
@@ -231,6 +257,7 @@ class SourcemeterGUI:
             value = float(self.current_setpoint_var.get())
             self.simulator.set_current_setpoint(value)
             self._log_message(f"GUI: Set current to {value:.6f} A")
+            self._log_message("Turn OUTPUT ON to measure.")
         except ValueError:
             self._log_message("GUI: Invalid current input. Please enter a number.")
 
@@ -243,6 +270,17 @@ class SourcemeterGUI:
         self.simulator.output_off()
         self._update_gui_status()
         self._log_message("GUI: Output OFF command sent.")
+
+    def _toggle_output_cmd(self):
+        ''' controls new single button OUTPUT indicator '''
+        if self.simulator.is_output_on():
+            self.simulator.output_off()
+            self._log_message("GUI: Output OFF command sent.")
+        else:
+            self.simulator.output_on()
+            self._log_message("GUI: Output ON command sent.")
+
+        self._update_gui_status()
 
     def _measure_cmd(self):
 
@@ -257,31 +295,43 @@ class SourcemeterGUI:
         self._update_gui_status()
 
         self.measured_voltage_var.set(
-            f"Measured V: {measurements['voltage']:.3f} V"
+            f"Measured V: {measurements['voltage_measured']:.6f} V"
         )
         self.measured_current_var.set(
-            f"Measured I: {measurements['current']:.6f} A"
+            f"Measured I: {measurements['current_measured']:.10f} A"
         )
 
         if measurements['resistance'] == float('inf'):
             self.measured_resistance_var.set("Measured R: INF Ohm")
         else:
             self.measured_resistance_var.set(
-                f"Measured R: {measurements['resistance']:.3f} Ohm"
+                f"Measured R: {measurements['resistance']:.2f} Ohm"
             )
 
         self._update_gui_status()
 
         self._log_message(
             f"GUI: Measurement - "
-            f"V={measurements['voltage']:.3f} V, "
-            f"I={measurements['current']:.6f} A, "
-            f"R={measurements['resistance']:.3f} Ohm"
+            f"Vset={measurements['voltage_setpoint']:.6f} V | "
+            f"Vmeas={measurements['voltage_measured']:.6f} V, "
+            f"Iset={measurements['current_setpoint']:.10f} A |"
+            f"Imeas={measurements['current_measured']:.10f} A "
+            f"R={measurements['resistance']:.2f} Ohm"
         )
 
         # resetting variables label to 0
         self.voltage_setpoint_var.set(0.0)
         self.current_setpoint_var.set(0.0)
+
+        self._last_measurement = {
+            "voltage_measured": 0.0,
+            "current_measured": 0.0,
+            "voltage_setpoint": 0.0,
+            "current_setpoint": 0.0,
+            "mode": None,
+            "resistance": 0.0,
+            "compliance": False
+        }
 
         # for safety, automatically turn output OFF post measurement
         self.simulator.output_off()
@@ -353,12 +403,12 @@ class SourcemeterGUI:
             currents = []
 
             for point in data:
-                v = point["voltage"]
-                i = point["current"]
+                v = point["voltage_measured"]
+                i = point["current_measured"]
 
-                voltages.append(v)
+                voltages.append(v)                              # append actual read_in_voltage and read_in_current and use those for plotting
                 currents.append(i)
-                # update plot
+                # set and update plot
                 self.line.set_data(voltages, currents)
                 self.ax.relim()
                 self.ax.autoscale_view()
@@ -366,7 +416,7 @@ class SourcemeterGUI:
                 self.canvas.draw()
 
                 self._log_message(
-                    f"Sweep: V={v:.3f}V , I={i:.6f}A "
+                    f"Sweep: V={v:.6f}V , I={i:.10f}A "
                 )
                 self.master.update()
 
@@ -386,35 +436,44 @@ class SourcemeterGUI:
     def _update_gui_status(self):
 
         if self.simulator.is_output_on():
-            self.output_status_var.set("Output: ON (Ready)")
+            self.output_status_var.set("Output: ON (Active)")
 
-            self.output_on_button.config(state="disabled")
-            self.output_off_button.config(state="normal")
-
-            self.measure_button.config(state="normal")
+            self.output_button.config(
+                text="OUTPUT ON",
+                bg="green",
+                fg="white"
+            )
 
         else:
             self.output_status_var.set("Output: OFF (Inactive)")
 
-            self.output_on_button.config(state="normal")
-            self.output_off_button.config(state="disabled")
-
-            self.measure_button.config(state="disabled")
+            self.output_button.config(
+                text="OUTPUT OFF",
+                bg="red",
+                fg="white"
+            )
 
         last_meas = self.simulator.get_last_measurement()
 
+        # indicate compliance processes
+        if last_meas['compliance']:
+            self.output_status_var.set("Output: OFF (Compliance Activated)")
+            self._log_message(f"GUI: {last_meas['mode']} compliance limit reached. Adjusted {last_meas['mode']} used.")
+
         self.measured_voltage_var.set(
-            f"Measured V: {last_meas['voltage']:.3f} V"
+            f"Vset: {last_meas['voltage_setpoint']:.6f} V | "
+            f"Vmeas: {last_meas['voltage_measured']:.6f} V"
             )
         self.measured_current_var.set(
-                f"Measured I: {last_meas['current']:.9f} A"
+                f"Iset: {last_meas['current_setpoint']:.6f} A | "
+                f"Imeas: {last_meas['current_measured']:.6f} A"
             )
 
         if last_meas['resistance'] == float('inf'):
             self.measured_resistance_var.set("Measured R: INF Ohm")
         else:
             self.measured_resistance_var.set(
-                f"Measured R: {last_meas['resistance']:.3f} Ohm"
+                f"Measured R: {last_meas['resistance']:.6f} Ohm"
             )
 
 
