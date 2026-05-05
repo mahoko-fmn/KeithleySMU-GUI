@@ -1,0 +1,7 @@
+# Instrument: Keithley2450 Source Measure Unit
+# Date: 2026-04-21_10-58-39 
+# Source Mode: current
+# Sweep Start: -0.009 V
+# Sweep Stop: 0.009 V
+# Sweep Step: 0.001 V
+Voltage (V),Current (A),Resistance (Ohm)

@@ -1,11 +1,15 @@
-# This program implements .....
-# It does it by ...
+# This program directly communicates with the SMU via ethernet
+# It does it by opening ports of both devices and interacts with the front-end interface,
+# a graphical user interface from which the user controls and operates the instrument
 #
-# (c)
-# ver
-#
+# @author : Mahoko Malebo
+# @version: v0.11
+# @date   : 04 May 2026
+
+''' Import libraries'''
 import pyvisa
 import time
+import numpy as np
 from typing import Dict
 from keithley.device_interface import KeithleyDevice
 
@@ -14,7 +18,6 @@ class Keithley2450Hardware(KeithleyDevice):
     """
     minimal raw-socket harware interface. no auto reset, no auto config. Just transport stability first
     """
-
     def __init__(self, resource_string: str):
         self.resource_string = resource_string
         self.rm = None
@@ -42,11 +45,11 @@ class Keithley2450Hardware(KeithleyDevice):
             "compliance": self._compliance
          }
 
-    # --------------------
-    # Lifecycle
-    # --------------------
+    # ---------------------------------------------------
+    # Lifecycle: connect, disconnect and set source mode
+    # ---------------------------------------------------
     def connect(self) -> None:
-        """ establish raw socket connection to instrument """
+        """ establish raw socket connection to instrument. Open pyVISA path """
 
         self.rm = pyvisa.ResourceManager()
 
@@ -107,7 +110,6 @@ class Keithley2450Hardware(KeithleyDevice):
             self._voltage_setpoint = 0.0
             self._write(":SOUR:CURR 0")
 
-            # Set voltage compliance once when mode is set
             self._write(f":SOUR:CURR:VLIM {self._voltage_compliance}")    # setting voltage limit
             self._write(':SENS:FUNC VOLT')
             self._write(":SENS:VOLT:RANG:AUTO ON")
@@ -127,9 +129,9 @@ class Keithley2450Hardware(KeithleyDevice):
             "compliance": False
          }
 
-    # ------------------
-    # Measurement
-    # -------------------
+    # -------------------------
+    # Measurement execution
+    # -------------------------
     def measure(self) -> Dict[str, float]:
 
         """ trigger measurement and return voltage,current,resistance """
@@ -160,7 +162,7 @@ class Keithley2450Hardware(KeithleyDevice):
 
         # Trigger ONE measurement
         reading = self.inst.query(":READ?")
-        print(reading)
+        print(reading)                                                          # debugging purposes PLEASE remove post bugs resolutions
         # Parse returned values
         values = [float(x) for x in reading.split(',')]
 
@@ -194,35 +196,16 @@ class Keithley2450Hardware(KeithleyDevice):
 
         self._last_measurement = measurement
 
-
-
         self._write("*CLS")
         time.sleep(0.05)
 
         return measurement
 
-    def _reinitialize_source(self):
-        ''' reapplying source configurations'''
-
-        if self._source_mode == "voltage":
-            self._write(":SOUR:FUNC VOLT")
-            self._write(':SENS:FUNC CURR')
-            self._write(":SENS:CURR:RANG:AUTO ON")
-
-        elif self._source_mode == "current":
-            self._write(":SOUR:FUNC CURR")
-            self._write(':SENS:FUNC VOLT')
-            self._write(":SENS:VOLT:RANG:AUTO ON")
-
-    def _prepare_voltage_sweep(self):
-        self._write(":SOUR:FUNC VOLT")
-        self._write(':SENS:FUNC CURR')
-
-        self._write(f":SENS:CURR:PROT {self._current_comliance}")
-        self._write(":SENS:CURR:RANG:AUTO ON")
+    # ----------------------------
+    # SWEEPS: VOLTAGE AND CURRENT
+    # --------------------------
 
     def voltage_sweep(self, start, stop, step, delay=0.5):
-
         """ perform a voltage sweep and measure current at each step.\n
         returns list of measurement dictionaries """
 
@@ -255,11 +238,59 @@ class Keithley2450Hardware(KeithleyDevice):
 
         return results
 
-    #def current_sweep()
+    def current_sweep(self, start, stop, step, delay=0.1 ):
+        ''' Perform a CURRENT sweep and return list of measurement dictionaries '''
+
+        if self.inst is None:
+            raise RuntimeError("Device not connected")
+
+        self.set_source_mode("current")                                    # ensure correct source mode then safe start
+        self.output_on()
+
+        currents = np.arange(start, stop + step, step)                     # generate sweep values
+
+        results = []
+
+        for current in currents:
+            self.set_current_setpoint(float(current))                      # apply source current
+            time.sleep(delay)                                              # let DUT settle
+
+            measurement = self.measure()                                   # measure DUT values
+
+
+            print("SWEEP:", measurement)                                   # debugging purposes PLEASE remove
+
+            results.append(measurement)                                    # store results
+
+        self._last_sweep_data = results
+        self._last_sweep_type = "current"
+
+        return results
+
+
+    def _reinitialize_source(self):
+        ''' reapplying source configurations'''
+
+        if self._source_mode == "voltage":
+            self._write(":SOUR:FUNC VOLT")
+            self._write(':SENS:FUNC CURR')
+            self._write(":SENS:CURR:RANG:AUTO ON")
+
+        elif self._source_mode == "current":
+            self._write(":SOUR:FUNC CURR")
+            self._write(':SENS:FUNC VOLT')
+            self._write(":SENS:VOLT:RANG:AUTO ON")
+
+    def _prepare_voltage_sweep(self):
+        self._write(":SOUR:FUNC VOLT")
+        self._write(':SENS:FUNC CURR')
+
+        self._write(f":SENS:CURR:PROT {self._current_comliance}")
+        self._write(":SENS:CURR:RANG:AUTO ON")
 
 
     # ---------------
-    # Setpoints
+    # SETPOINTS SETTERS
     # ---------------------
     def set_voltage_setpoint(self, voltage: float) -> None:
         if self._source_mode != "voltage":
@@ -276,9 +307,9 @@ class Keithley2450Hardware(KeithleyDevice):
         self._current_setpoint = current
         self._write(f":SOUR:CURR {current}")
 
-    # ----------------------
+    # ---------------------------------------------
     # Getters
-    # ----------------------
+    # ---------------------------------------------
     def get_voltage_setpoint(self) -> float:
         return self._voltage_setpoint
 
@@ -291,9 +322,9 @@ class Keithley2450Hardware(KeithleyDevice):
     def get_source_mode(self) -> str:
         return self._source_mode
 
-    # --------------------
+    # --------------------------------------------
     # output control
-    # ----------------------------
+    # -------------------------------------------
 
     def output_on(self) -> bool:
         if self._source_mode is None:
@@ -324,7 +355,7 @@ class Keithley2450Hardware(KeithleyDevice):
         return self.inst.read()                         # read response until newline
 
 
-    # accessing SMU errors
+    # accessing SMU errors: need to work on this fearure. SHARE arising errors with the UX
     #def read_error_queue(self):
 
     #    errors = []
@@ -338,7 +369,6 @@ class Keithley2450Hardware(KeithleyDevice):
 
     # error checking
     def _check_error(self) -> None:
-
         """ Query instrument error queue. Raise RuntimeError if any error present """
 
         while True:
@@ -360,13 +390,6 @@ class Keithley2450Hardware(KeithleyDevice):
         # print(f"SCPI: {cmd}")
         self.inst.write(cmd)
 
-        # termporal  code for debugging
-        #self.inst.write(":SYST:ERR?")
-        #err = self.inst.read()
-
-        #print(f"ERR: {err}")
-
-        #self._check_error()
 
     def debug_query(self, cmd):
         ''' running tests scripts, to test SMU commands and debugg'''
