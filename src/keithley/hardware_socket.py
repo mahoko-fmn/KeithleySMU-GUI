@@ -124,16 +124,24 @@ class Keithley2450Hardware(KeithleyDevice):
             "current_measured": 0.0,
             "voltage_setpoint": 0.0,
             "current_setpoint": 0.0,
-            "mode": self._source_mode, # Corrected: Use self._source_mode
+            "mode": self._source_mode,
             "resistance": 0,
             "compliance": False
          }
+
+    def _set_sense_mode(self, mode):
+        ''' command unit to specified sense mode'''
+        if mode == "2W":
+            self._write(":SYST:RSEN OFF")                   # local sense
+        elif mode == "4W":
+            self._write(":SYST:RSEN ON")                    # remote sense
+        else:
+            raise ValueError("Invalid sense mode")
 
     # -------------------------
     # Measurement execution
     # -------------------------
     def measure(self) -> Dict[str, float]:
-
         """ trigger measurement and return voltage,current,resistance """
 
         # stabalize measurement post configuration

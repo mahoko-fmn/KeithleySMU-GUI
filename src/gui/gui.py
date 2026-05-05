@@ -20,9 +20,13 @@ class SourcemeterGUI:
         self.voltage_setpoint_var = tk.StringVar(value=str(self.simulator.get_voltage_setpoint()))
         self.current_setpoint_var = tk.StringVar(value=str(self.simulator.get_current_setpoint()))
         self.output_status_var = tk.StringVar(value="Output: OFF")
+
+        # status log output parameters
         self.measured_voltage_var = tk.StringVar(value="Measured V: 0.000 V")
         self.measured_current_var = tk.StringVar(value="Measured I: 0.000 A")
         self.measured_resistance_var = tk.StringVar(value="Measured R: 0.000 Ohm")
+        # 2-wire, 4-wire sense mode variable
+        self.sense_mode_var = tk.StringVar(value="2W")
 
         self._create_widgets()
         self._update_gui_status()
@@ -35,21 +39,42 @@ class SourcemeterGUI:
         main_frame = tk.Frame(self.master, padx=10, pady=10)
         main_frame.pack(fill='both', expand=True)
 
+        ''' create source and sense mode configuration toggles '''
         source_frame = tk.LabelFrame(
             main_frame,
             text="SOURCE CONFIGURE",
             padx=10,
             pady=10
         )
-
         source_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
 
-        # create a mode selection toggle
+        # source mode
         mode_frame = tk.LabelFrame(source_frame, text="Source Mode")
         mode_frame.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
 
+        # sense mode
+        sense_frame = tk.LabelFrame(source_frame, text="Sense Mode", padx=5, pady=5)
+        sense_frame.grid(row=1, column=0, sticky="ew", pady=5)
+
+        tk.Radiobutton(
+            sense_frame,
+            text="2-Wire",
+            variable=self.sense_mode_var,
+            value="2W",
+            command=self._set_sense_mode_cmd
+        ).grid(row=0, column=1, padx=5)
+
+        tk.Radiobutton(
+            sense_frame,
+            text="4-Wire",
+            variable=self.sense_mode_var,
+            value="4W",
+            command=self._set_sense_mode_cmd
+        ).grid(row=0, column=2, padx=5)
+
+        # setpoints
         setpoint_frame = tk.LabelFrame(source_frame, text="Setpoints")
-        setpoint_frame.grid(row=1, column=0, padx=5, pady=5, sticky='ew')
+        setpoint_frame.grid(row=2, column=0, padx=5, pady=5, sticky='ew')
 
         setpoint_frame.grid_columnconfigure(0, weight=1)
 
@@ -62,7 +87,7 @@ class SourcemeterGUI:
         self.current_entry.grid(row=1, column=1, padx=5, pady=2, sticky='ew')
 
 
-        self.source_mode_var = tk.StringVar(value="current") # set the default Radiobutton
+        self.source_mode_var = tk.StringVar(value="current")                                            # set the default Radiobutton
 
         tk.Radiobutton(
             mode_frame,
@@ -177,7 +202,6 @@ class SourcemeterGUI:
         # -------------------------------------
         # CURRENT SWEEP
         # -------------------------------------
-
         i_sweep_frame = tk.LabelFrame(sweep_frame, text="Current Sweep", padx=8, pady=8)
         i_sweep_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
@@ -193,7 +217,6 @@ class SourcemeterGUI:
 
         tk.Label(i_sweep_frame, text="Step (A):").grid(row=2, column=0, sticky="w")
         tk.Entry(i_sweep_frame, textvariable=self.step_current_var, width=10).grid(row=2, column=1, pady=2)
-
         # current sweep button
         self.current_sweep_button = tk.Button(
             i_sweep_frame,
@@ -202,10 +225,8 @@ class SourcemeterGUI:
         )
         self.current_sweep_button.grid(row=3, column=0, columnspan=2, pady=5, sticky="ew")
 
-        # -------------------------------
-        # SHARED SAVE BUTTON
-        # ------------------------------
 
+        # save button for both voltage and current sweep
         self.save_button = tk.Button(
             sweep_frame,
             text="Save Data",
@@ -214,9 +235,7 @@ class SourcemeterGUI:
         )
         self.save_button.grid(row=1, column=0, columnspan=2, pady=8, sticky="ew")
 
-        # -----------------
-        # RESIZE CONFIG
-        # -----------------
+        # allow sweep frame to resize with the main window
         sweep_frame.grid_columnconfigure(0, weight=1)
         sweep_frame.grid_columnconfigure(1, weight=1)
 
@@ -355,6 +374,16 @@ class SourcemeterGUI:
             self._log_message("Turn OUTPUT ON to measure.")
         except ValueError:
             self._log_message("GUI: Invalid current input. Please enter a number.")
+
+    def _set_sense_mode_cmd(self):
+        ''' switch sense mode between 2-wire and 4-wire '''
+        if self.simulator.is_output_on():
+            self._log_message("GUI: Turning output OFF before changing sense mode.")
+            self.simulator.output_off()
+
+        mode = self.sense_mode_var.get()
+        self.simulator._set_sense_mode(mode)
+        self._log_message(f"GUI: Sense mode set to {mode}" + "ire")
 
     # ----------------------------------------------
     # OUTPUT SYSTEM STATE
@@ -715,6 +744,7 @@ class SourcemeterGUI:
 
 
     def _log_message(self, message):
+        ''' displays current state of the Unit'''
         timestamp = datetime.now().strftime("[%H:%M:%S]")
         log_entry = f"{timestamp} {message}\n"
         self.output_text.config(state='normal')
