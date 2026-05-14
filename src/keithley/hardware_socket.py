@@ -233,42 +233,47 @@ class Keithley2450Hardware(KeithleyDevice):
             condition = lambda v: v >= stop
 
         while condition(voltage):
-
-            # use API instead of direct SCPI
             self.set_voltage_setpoint(voltage)
-
             time.sleep(delay)
-
             measurement = self.measure()
             results.append(measurement)
 
             voltage += step
 
+            # abort sweep
+            if self.abort_requested:
+                break
+                self.output_off()
+
         return results
 
-    def current_sweep(self, start, stop, step, delay=0.1 ):
-        ''' Perform a CURRENT sweep and return list of measurement dictionaries '''
-
+    def current_sweep(self, start, stop, step, delay=0.1, abort_callback=None):
+        ''' Perform a CURRENT sweep and return list of measurement dictionaries,
+            and stops the sweep on command
+        '''
         if self.inst is None:
             raise RuntimeError("Device not connected")
 
-        self.set_source_mode("current")                                    # ensure correct source mode then safe start
+        self.set_source_mode("current")                                                     # ensure correct source mode then safe start
         self.output_on()
 
-        currents = np.arange(start, stop + step, step)                     # generate sweep values
+        currents = np.arange(start, stop + step, step)                                      # generate sweep values
 
         results = []
 
         for current in currents:
-            self.set_current_setpoint(float(current))                      # apply source current
-            time.sleep(delay)                                              # let DUT settle
+            self.set_current_setpoint(float(current))                                       # apply source current
+            ''' look into the need of this delay as it impacts measurement rate '''
+            time.sleep(delay)                                                               # let DUT settle
+            measurement = self.measure()                                                    # measure DUT values
+            #print("SWEEP:", measurement)                                                   # debugging purposes PLEASE remove
+            results.append(measurement)                                                     # store results
 
-            measurement = self.measure()                                   # measure DUT values
+            if abort_callback and abort_callback():                                         # abort checker
+                print("SWEEP ABORTED")
+                self.output_off()
+                break
 
-
-            print("SWEEP:", measurement)                                   # debugging purposes PLEASE remove
-
-            results.append(measurement)                                    # store results
 
         self._last_sweep_data = results
         self._last_sweep_type = "current"
@@ -296,7 +301,6 @@ class Keithley2450Hardware(KeithleyDevice):
         self._write(f":SENS:CURR:PROT {self._current_comliance}")
         self._write(":SENS:CURR:RANG:AUTO ON")
 
-
     # ---------------
     # SETPOINTS SETTERS
     # ---------------------
@@ -306,7 +310,6 @@ class Keithley2450Hardware(KeithleyDevice):
 
         self._voltage_setpoint = voltage
         self._write(f":SOUR:VOLT {voltage}")
-
 
     def set_current_setpoint(self, current: float) -> None:
         if self._source_mode != "current":
@@ -331,7 +334,7 @@ class Keithley2450Hardware(KeithleyDevice):
         return self._source_mode
 
     # --------------------------------------------
-    # output control
+    # Output safety control
     # -------------------------------------------
 
     def output_on(self) -> bool:
@@ -350,7 +353,6 @@ class Keithley2450Hardware(KeithleyDevice):
 
     def is_output_on(self):
         return self._output_on
-
 
     # instrument identification
     def identify(self):

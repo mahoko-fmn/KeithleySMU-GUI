@@ -2,6 +2,8 @@ import random
 import csv
 import tkinter as tk
 import matplotlib.pyplot as plt
+import threading
+
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.ticker import AutoMinorLocator
 from tkinter import filedialog
@@ -9,11 +11,12 @@ from datetime import datetime
 
 
 class SourcemeterGUI:
-    """Manages the GUI elements for the Keithley 2450 Sourcemeter Simulator."""
+    """Manages the GUI elements for the Keithley 2450 source measure unit."""
 
     def __init__(self, master, simulator):
+        #self.root = root
         self.master = master
-        self.simulator = simulator # This will be either Keithley2450Simulator or Keithley2450Hardware
+        self.simulator = simulator # This is Keithley2450Hardware communicator package
         self.master.title('Keithley 2450 Control Interface')
         self.master.geometry('900x700')
 
@@ -25,8 +28,9 @@ class SourcemeterGUI:
         self.measured_voltage_var = tk.StringVar(value="Measured V: 0.000 V")
         self.measured_current_var = tk.StringVar(value="Measured I: 0.000 A")
         self.measured_resistance_var = tk.StringVar(value="Measured R: 0.000 Ohm")
-        # 2-wire, 4-wire sense mode variable
-        self.sense_mode_var = tk.StringVar(value="2W")
+
+        self.sense_mode_var = tk.StringVar(value="2W")                                          # 2-wire, 4-wire sense mode variable
+        self.abort_requested = False                                                            # stop parameter sweep flag
 
         self._create_widgets()
         self._update_gui_status()
@@ -72,7 +76,7 @@ class SourcemeterGUI:
             command=self._set_sense_mode_cmd
         ).grid(row=0, column=2, padx=5)
 
-        # setpoints
+        # setpoints frame
         setpoint_frame = tk.LabelFrame(source_frame, text="Setpoints")
         setpoint_frame.grid(row=2, column=0, padx=5, pady=5, sticky='ew')
 
@@ -192,7 +196,7 @@ class SourcemeterGUI:
         tk.Label(v_sweep_frame, text="Step (V):").grid(row=2, column=0, sticky="w")
         tk.Entry(v_sweep_frame, textvariable=self.step_voltage_var, width=10).grid(row=2, column=1, pady=2)
 
-        # VOLTAGE SWEEP button
+        # voltgae sweep button
         tk.Button(
             v_sweep_frame,
             text="Run V Sweep",
@@ -225,6 +229,15 @@ class SourcemeterGUI:
         )
         self.current_sweep_button.grid(row=3, column=0, columnspan=2, pady=5, sticky="ew")
 
+        # abort button for both voltage and current sweep
+        self.abort_button = tk.Button(
+            sweep_frame,
+            text="Abort Sweep",
+            bg = "red",
+            command=self._abort_sweep_cmd
+        )
+        self.abort_button.grid(row=1, column=1, columnspan=1, pady=5, sticky="ew")
+
 
         # save button for both voltage and current sweep
         self.save_button = tk.Button(
@@ -233,7 +246,7 @@ class SourcemeterGUI:
             bg = "blue",
             command=self._save_data_cmd
         )
-        self.save_button.grid(row=1, column=0, columnspan=2, pady=8, sticky="ew")
+        self.save_button.grid(row=1, column=0, columnspan=1, pady=5, sticky="ew")
 
         # allow sweep frame to resize with the main window
         sweep_frame.grid_columnconfigure(0, weight=1)
@@ -317,9 +330,9 @@ class SourcemeterGUI:
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
 
-    # --------------------------
-    # VARIABLE SETTERS
-    # ---------------------------
+    # --------------------------------------------------------------
+    # VARIABLE SETTERS: source mode, current & voltage, sense mode
+    # --------------------------------------------------------------
     def _set_source_mode_cmd(self):
         mode = self.source_mode_var.get()
 
@@ -414,7 +427,7 @@ class SourcemeterGUI:
     # GUI MEASURE
     # ----------------------------------------
     def _measure_cmd(self):
-
+        ''' passes the measurement input parameters to backend and returns results'''
         # ensuring output ON before every measurement
         if not self.simulator.is_output_on():
             self._log_message("Warning: Output is OFF, Enable output before a measurement. ")
@@ -449,7 +462,6 @@ class SourcemeterGUI:
             f"Imeas={measurements['current_measured']:.10f} A "
             f"R={measurements['resistance']:.2f} Ohm"
         )
-
         # resetting variables label to 0
         self.voltage_setpoint_var.set(0.0)
         self.current_setpoint_var.set(0.0)
@@ -463,14 +475,13 @@ class SourcemeterGUI:
             "resistance": 0.0,
             "compliance": False
         }
-
         # for safety, automatically turn output OFF post measurement
         self.simulator.output_off()
         self._update_gui_status()
 
-    # ----------------------------
+    # ---------------------------------------------------------------------------------------------
     # SWEEPS: VOLTAGE AND CURRENT
-    # --------------------------
+    # ---------------------------------------------------------------------------------------------
     def _run_voltage_sweep_cmd(self):
         ''' Sweep the voltage based on start, step and stop values'''
 
@@ -595,24 +606,35 @@ class SourcemeterGUI:
                 f"in steps of {step:.6f} A"
             )
 
-            self.current_sweep_button.config(state="disabled")                  # disable sweep button while sweeping
+            self.current_sweep_button.config(state="disabled")                                                          # disable sweep button while sweeping
 
-            results = self.simulator.current_sweep(start, stop, step)           # run backend sweep
 
-            self.last_sweep_data = results
+            self.abort_requested = False
 
-            # extract plot data X = voltage, Y = current
-            voltages = [m["voltage_measured"] for m in results]
-            currents = [m["current_measured"] for m in results]
+            thread = threading.Thread(
+                target = self._current_sweep_worker,
+                args=(start, stop, step),
+                daemon=True
+            )
+            thread.start()
 
-            # update live plot
-            self.line.set_data(voltages, currents)
-            self.ax.relim()
-            self.ax.autoscale_view()
-            self.ax.margins(x=0.08, y=0.08)                                     # slight margin
-            self.canvas.draw()
+            #results = self.simulator.current_sweep(start, stop, step, abort_callback=self._is_abort_requested)           # run backend sweep
+            #results = []
 
-            self._update_gui_status()                                           # update UGI status
+            # self.last_sweep_data = results
+            #
+            # # extract plot data X = voltage, Y = current
+            # voltages = [m["voltage_measured"] for m in results]
+            # currents = [m["current_measured"] for m in results]
+            #
+            # # update live plot
+            # self.line.set_data(voltages, currents)
+            # self.ax.relim()
+            # self.ax.autoscale_view()
+            # self.ax.margins(x=0.08, y=0.08)                                                                               # slight margin
+            # self.canvas.draw()
+
+            #class elf._update_gui_status()                                           # update UGI status
 
             # log completion
             self._log_message(
@@ -638,8 +660,102 @@ class SourcemeterGUI:
             self.simulator.output_off()
             pass
 
-    def _save_data_cmd(self):
+    def _current_sweep_worker(self, start, stop, step):
+        ''' thread the sweep loop to avail the GUI to the user '''
+        try:
+            results = self.simulator.current_sweep(start, stop, step, abort_callback=self._is_abort_requested)
+            self.master.after(0, self._on_sweep_complete, results)                                                # send results back to GUI thread
+        except Exception as e:
+            self.master.after(0, self._log_message, f"ERROR: {str(e)}")
 
+    def _on_sweep_complete(self, results):
+        ''' gui update after sweep loop thread is done '''
+        self.last_sweep_data = results
+
+        # extract and plot data X = voltage, Y = current
+        voltages = [m["voltage_measured"] for m in results]
+        currents = [m["current_measured"] for m in results]
+
+        ## update live plot
+        self.line.set_data(voltages, currents)
+        self.ax.relim()
+        self.ax.autoscale_view()
+        self.ax.margins(x=0.08, y=0.08)
+        self.canvas.draw()
+
+        #self._update_gui_status()
+
+        if self.abort_requested:
+            self._log_message("Sweep stop accepted, readings aborted.")
+        else:
+            self._log_message(
+                f"GUI: Current sweep complete "
+                f"({len(results)} points acquired)")
+
+        # reset input boxes
+        self.start_current_var.set("0.0")
+        self.stop_current_var.set("0.0")
+        self.step_current_var.set("0.0")
+
+    def _abort_sweep_cmd(self):
+        ''' abort a sweep '''
+        self.abort_requested = True
+        self._log_message("GUI: Sweep abort requested.")
+
+    def _is_abort_requested(self):
+        return self.abort_requested
+
+    # -----------------------------------------------------
+    # Interface Correspondence from backend
+    # -----------------------------------------------------
+    def _update_gui_status(self):
+        ''' display data for single measurement '''
+        if self.simulator.is_output_on():
+            self.output_status_var.set("Output: ON (Active)")
+
+            self.output_button.config(
+                text="OUTPUT ON",
+                bg="blue",
+                fg="black"
+            )
+        else:
+            self.output_status_var.set("Output: OFF (Inactive)")
+
+            self.output_button.config(
+                text="OUTPUT OFF",
+                bg="red",
+                fg="white"
+            )
+
+        last_meas = self.simulator.get_last_measurement()
+
+        # indicate compliance processes
+        if last_meas['compliance']:
+            self.output_status_var.set("Output: OFF (Compliance Limit)")
+            self._log_message(f"GUI: {last_meas['mode']} compliance limit reached. Adjusted {last_meas['mode']} used.")
+
+        self.measured_voltage_var.set(
+            f"Vset: {last_meas['voltage_setpoint']:.6f} V | "
+            f"Vmeas: {last_meas['voltage_measured']:.6f} V"
+            )
+        self.measured_current_var.set(
+                f"Iset : {last_meas['current_setpoint']:.6f} A | "
+                f"Imeas: {last_meas['current_measured']:.6f} A"
+            )
+
+        if last_meas['resistance'] == float('inf'):
+            self.measured_resistance_var.set("Measured R: INF Ohm")
+        else:
+            self.measured_resistance_var.set(
+                f"Measured R: {last_meas['resistance']:.6f} Ohm"
+            )
+
+
+    # -------------------------------------
+    # DATA SAVING
+    # -------------------------------------
+    def _save_data_cmd(self):
+        ''' save sweep data to a CSV file '''
         if not hasattr(self, "last_sweep_data"):
             self._log_message("GUI: No sweep data to save")
             return
@@ -698,49 +814,6 @@ class SourcemeterGUI:
         #self.sweep_start_var.set("0.0")
         #self.sweep_stop_var.set("0.0")
         #self.sweep_step_var.set("0.0")
-
-    def _update_gui_status(self):
-
-        if self.simulator.is_output_on():
-            self.output_status_var.set("Output: ON (Active)")
-
-            self.output_button.config(
-                text="OUTPUT ON",
-                bg="blue",
-                fg="black"
-            )
-
-        else:
-            self.output_status_var.set("Output: OFF (Inactive)")
-
-            self.output_button.config(
-                text="OUTPUT OFF",
-                bg="red",
-                fg="white"
-            )
-
-        last_meas = self.simulator.get_last_measurement()
-
-        # indicate compliance processes
-        if last_meas['compliance']:
-            self.output_status_var.set("Output: OFF (Compliance Limit)")
-            self._log_message(f"GUI: {last_meas['mode']} compliance limit reached. Adjusted {last_meas['mode']} used.")
-
-        self.measured_voltage_var.set(
-            f"Vset: {last_meas['voltage_setpoint']:.6f} V | "
-            f"Vmeas: {last_meas['voltage_measured']:.6f} V"
-            )
-        self.measured_current_var.set(
-                f"Iset: {last_meas['current_setpoint']:.6f} A | "
-                f"Imeas: {last_meas['current_measured']:.6f} A"
-            )
-
-        if last_meas['resistance'] == float('inf'):
-            self.measured_resistance_var.set("Measured R: INF Ohm")
-        else:
-            self.measured_resistance_var.set(
-                f"Measured R: {last_meas['resistance']:.6f} Ohm"
-            )
 
 
     def _log_message(self, message):
