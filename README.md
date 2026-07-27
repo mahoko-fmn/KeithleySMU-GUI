@@ -2,6 +2,12 @@
 
 This project implements a modular Python GUI for controlling and simulating Keithley instruments as part of an MSc research project. The main objective being to better improve the efficiency of use of laboratory instruments by simplifications of interactions and thus sensory measurements.
 
+-------------------------------NB----------------------------------------------------------------
+
+There is two more modules missing, dispatcher.py and controller.py, which communicates with Raspberry Pi in JSON format. The modules are local to the machine at the lab, theyre still to be uploaded to the repo. 
+
+-------------------------------------------------------------------------------------------------
+
 ## Structure
 - notebooks/: exploratory and analysis notebooks
 - src/: reusable Python modules (core application modules)
